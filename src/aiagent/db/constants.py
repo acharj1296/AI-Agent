@@ -284,6 +284,7 @@ class ModelProvider(StrEnum):
     GOOGLE = "google"
     OLLAMA = "ollama"
     VLLM = "vllm"
+    MOCK = "mock"
 
 
 class MemoryKind(StrEnum):

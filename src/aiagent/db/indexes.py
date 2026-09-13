@@ -158,6 +158,12 @@ INDEXES: tuple[IndexSpec, ...] = (
         "ix_agent_runs_project_created",
         reason="audit/observability listing",
     ),
+    IndexSpec(
+        "agent_runs",
+        {"agent_id": 1, "task_id": 1, "attempt": -1},
+        "ix_agent_runs_agent_task_attempt",
+        reason="per-agent/task attempt numbering for the runtime (STEP 5)",
+    ),
     # tasks
     IndexSpec(
         "tasks",

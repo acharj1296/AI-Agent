@@ -317,21 +317,42 @@ class Agent(BaseDocument):
 
 
 class AgentRun(BaseDocument):
-    """One agent execution attempt (docs/plan/28 section 2.3)."""
+    """One agent execution attempt (docs/plan/28 section 2.3, STEP 5 runtime).
+
+    Multiple attempts for the same (agent, task) are distinguished by
+    ``attempt`` (idempotent and unique per agent+task).  Large raw payloads are
+    not stored inline: ``input_ref`` / ``output_ref`` point at artifacts
+    (docs/plan/28 §2.5) while ``input`` / ``output`` hold truncated previews;
+    ``output_truncated`` records whether the stored output was trimmed to the
+    preview limit.
+    """
 
     collection = "agent_runs"
 
     agent_id: str = Field(min_length=1)
+    agent_version: str | None = None
     task_id: str | None = None
     project_id: str | None = None
+    workflow_run_id: str | None = None
     attempt: int = Field(default=1, ge=1)
     status: AgentRunStatus = AgentRunStatus.CREATED
     parent_run_id: str | None = None
     model_id: str | None = None
+    provider: str | None = None
+    model: str | None = None
     tokens_in: int = Field(default=0, ge=0)
     tokens_out: int = Field(default=0, ge=0)
     cost_usd: float = Field(default=0.0, ge=0)
+    duration_ms: int | None = Field(default=None, ge=0)
+    retry_count: int = Field(default=0, ge=0)
+    correlation_id: str | None = None
+    input_ref: str | None = None
+    output_ref: str | None = None
+    input: str | None = None
+    output: str | None = None
+    output_truncated: bool = False
     tool_calls: dict[str, Any] | None = None
+    error_code: str | None = None
     error_detail: dict[str, Any] | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None

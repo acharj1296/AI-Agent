@@ -69,3 +69,31 @@ class PolicyViolationError(AiAgentError):
 
     status_code = 403
     error_code = "policy_violation"
+
+
+class AgentNotExecutableError(AiAgentError):
+    """The agent cannot be executed (inactive, disabled, or missing)."""
+
+    status_code = 403
+    error_code = "agent_not_executable"
+
+
+class PermissionDeniedError(AiAgentError):
+    """A capability, tool, or permission check failed."""
+
+    status_code = 403
+    error_code = "permission_denied"
+
+
+class InvalidExecutionContextError(AiAgentError):
+    """The execution context contains invalid references (project, task, etc.)."""
+
+    status_code = 422
+    error_code = "invalid_execution_context"
+
+
+class PayloadTooLargeError(AiAgentError):
+    """Input or output exceeds the configured size limits."""
+
+    status_code = 413
+    error_code = "payload_too_large"

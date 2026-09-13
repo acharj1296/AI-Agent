@@ -291,6 +291,22 @@ class AgentRunRepository(Repository[AgentRun]):
     async def find_by_task(self, task_id: str) -> list[AgentRun]:
         return await self.find_many({"task_id": task_id}, sort=[("created_at", -1)])
 
+    async def next_attempt(self, agent_id: str, task_id: str | None) -> int:
+        """Next attempt number for a (agent, task) pair (attempts are 1-based)."""
+        query: dict[str, Any] = {"agent_id": agent_id}
+        if task_id is not None:
+            query["task_id"] = task_id
+        latest = await self.find_many(query, sort=[("attempt", -1)], limit=1)
+        return (latest[0].attempt + 1) if latest else 1
+
+    async def find_agent_run(
+        self, agent_id: str, task_id: str | None, attempt: int
+    ) -> AgentRun | None:
+        query: dict[str, Any] = {"agent_id": agent_id, "attempt": attempt}
+        if task_id is not None:
+            query["task_id"] = task_id
+        return await self.find_one(query)
+
 
 class TaskRepository(Repository[Task]):
     def __init__(self, db: AsyncIOMotorDatabase) -> None:

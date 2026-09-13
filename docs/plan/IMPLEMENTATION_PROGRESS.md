@@ -1,7 +1,8 @@
 # Implementation Progress — AI-Agent
 
 Status: **STEP 1 (Foundation) COMPLETE, STEP 2 (MongoDB primary DB) COMPLETE,**
-**STEP 3 (Core Domain Models) COMPLETE, STEP 4 (Agent Registry) COMPLETE**.
+**STEP 3 (Core Domain Models) COMPLETE, STEP 4 (Agent Registry) COMPLETE,**
+**STEP 5 (Agent Runtime) COMPLETE**.
 Last updated: 2026-09-13
 
 ## Step 1 — Foundation (DONE)
@@ -401,3 +402,95 @@ Tests:
 4. No `org_id` on MVP `Agent` (single-org assumption).
 5. Versioning = single doc + semver + audit history.
 6. Eligibility is registry-only; assignment comes with the task system.
+
+---
+
+## STEP 5 — Agent Runtime (DONE)
+
+**Goal:** provider-independent model abstraction + persistent, gated `AgentRun`
+execution path. **Excluded:** real tools, task/workflow engine, queue, real-model
+credentials.
+
+### Built
+
+- `runtime/` package — `ModelProvider` protocol + frozen-dataclass
+  request/response types (`models.py`), `ModelProviderRegistry`, `ModelGateway`
+  (`gateway.py`), deterministic `DeterministicMockModelProvider` with scripted
+  behaviors (`providers/mock.py`; env `MOCK="mock"`, `mock-default`).
+- `runtime/run_state.py` — plan-37 state machine plus documented **READY →
+  PAUSED** extension for approval-required runs; retry via FAILED → READY on the
+  same run row (`agent_run.retrying`, `retry_count`++, attempt++); CANCELLED
+  from most states; terminal PAUSED/SUCCEEDED/FAILED/CANCELLED.
+- `runtime/retry.py` — `RetryPolicy`/`RetryErrorClassifier`/`compute_backoff`
+  (linear `min(cap, base*2**(n-1))` + optional full jitter, seeded for tests);
+  `is_retryable` = provider unavailable/timeout/rate-limit/transient.
+- `runtime/context.py` gates — status/capability/tool-permission/autonomy/input
+  size/execution-context; errors map to 403/404/413/422 via STEP-4 envelography.
+- `runtime/prompts.py` — `FileInstructionSource` w/ traversal guard +
+  system/user prompt layering; `runtime/content.py` — file-backed content store
+  (`data/artifacts/runs/<id>/<kind>.txt`) + bounded inline preview +
+  `output_truncated`.
+- `runtime/service.py` — `AgentRuntimeService.run/find_run/find_runs_in_state`:
+  resolve → config (model resolved **before** run creation so bad provider
+  config never orphans a CREATED run) → gates → create READY → claim → execute
+  w/ retry + cancel-aware backoff → persist outcome/events/audit.
+- `AgentRun` model extension (`db/models.py`): status/state, `agent_version`,
+  `workflow_run_id`, `provider`, `model`, `duration_ms`, `retry_count`,
+  `correlation_id`, `input_ref/output_ref`, `input/output` previews,
+  `output_truncated`, `error_code`, `started_at/completed_at` (also on FAILED);
+  repository `next_attempt`/`find_agent_run`; new index
+  `ix_agent_runs_agent_task_attempt`.
+- Events `agent_run.created/ready/retrying/claimed/started/validating/
+  succeeded/failed/paused/cancelled` + audit on transitions.
+- Config `RuntimeSettings` (`core/config.py`) + `default.yaml`
+  (mock, 200k/100k char caps, preview 4000, retry 3/1s base/30s cap) +
+  `dev.yaml` (base 0.05s / cap 0.2s so retries are observable).
+- Internal API (`api/routers/runtime.py`): `POST /internal/agents/{handle}/run`,
+  `GET /internal/agent-runs/{run_id}`; mounted in `api/app.py`.
+- `config/prompts/system/*/v1.md` — 8 seeded system-prompt instruction files
+  exercised by live runs.
+
+### Tests
+
+- Unit (7 modules, ~55): run-state transition matrix, backoff math, mock script
+  behaviors, gateway (timeout/empty/cancel/unknown provider typing), gates +
+  context, prompt source (incl. path-traversal rejection), content stores +
+  preview.
+- Integration (`test_agent_runtime.py`, 20): full orchestration against real
+  Mongo (events/audit persistence, attempts, metadata, denials, pause, retries,
+  cancellation, config-error no-orphan). HTTP (`test_runtime_api.py`, 5): runs,
+  approval pause, disabled 403, 404s using the STEP-4 reachability-skip +
+  per-test reset pattern.
+
+### Verification results
+
+| Gate | Command | Result |
+|------|---------|--------|
+| Format | `black src tests` | clean |
+| Lint | `ruff check src tests` | clean (0 errors) |
+| Types | `mypy src` | clean (55 files) |
+| Tests | `pytest` | **232 passed** (152 offline + 80 integration) |
+| Live | uvicorn + POST `/internal/agents/backend-developer/run` | `decision=allowed`, `status=succeeded`, mock output, persisted run + `created,ready,claimed,started,succeeded` events + audit |
+| Live | required level 3 on level-2 agent | `decision=approval_required`, `status=paused`, no model call |
+| Live | disable → run → re-enable | 403 `agent_not_executable`; run succeeds again |
+| Secrets | src/tests/docs scan | clean |
+
+### Issues resolved
+
+- Gateway wrapped typed provider errors → `except ModelError: raise` keeps
+  `provider_unavailable` precise.
+- Routers are mounted without `/v1`; API tests use bare `/internal/...`.
+- TestClient needs `with _client() as c:` so lifespan `init_db` runs.
+- `ProjectService.create_project` requires an existing org (tests seed one);
+  disabled agents must be disabled via lifecycle (registry rejects DISABLED on
+  create).
+
+### Decisions requiring approval (see STEP5_AGENT_RUNTIME.md)
+
+1. Retried runs reuse one run row (no new CREATED run per attempt).
+2. Exhausted retries end FAILED (escalation deferred to human-in-loop step).
+3. READY → PAUSED documented extension for approval-required runs.
+4. Dataclass request/response types + provider protocol (gateway-internal).
+5. Mock-only provider in STEP 5 (real providers added later).
+6. File-backed content, bounded inline previews (no object storage yet).
+7. Internal API carries no auth (unchanged STEP 4 posture).

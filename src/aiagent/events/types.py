@@ -47,6 +47,15 @@ class EventType(StrEnum):
     WORKFLOW_UPDATED = "workflow.updated"
     # workflow runs
     WORKFLOW_RUN_CREATED = "workflow_run.created"
+    # agent runs (STEP 5 runtime lifecycle)
+    AGENT_RUN_CREATED = "agent_run.created"
+    AGENT_RUN_READY = "agent_run.ready"
+    AGENT_RUN_CLAIMED = "agent_run.claimed"
+    AGENT_RUN_STARTED = "agent_run.started"
+    AGENT_RUN_SUCCEEDED = "agent_run.succeeded"
+    AGENT_RUN_FAILED = "agent_run.failed"
+    AGENT_RUN_PAUSED = "agent_run.paused"
+    AGENT_RUN_CANCELLED = "agent_run.cancelled"
 
 
 class DomainEvent(BaseModel):

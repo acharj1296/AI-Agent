@@ -29,3 +29,21 @@ health:
 
 storage:
   artifacts_dir: data/artifacts
+  # Versioned per-agent system instructions (FileInstructionSource); each file
+  # is loaded as `<prompts_dir>/<ref>.md` at run time.
+  prompts_dir: config/prompts
+
+runtime:
+  # Agent runtime (STEP 5) defaults. Per-agent overrides win via Agent.model.
+  default_provider: mock
+  default_model: mock-default
+  default_max_tokens: 1024
+  default_timeout_secs: 30
+  max_input_chars: 200000
+  max_output_chars: 100000
+  inline_preview_chars: 4000
+  retry:
+    max_attempts: 3
+    backoff_base_secs: 1
+    backoff_cap_secs: 30
+    jitter: true

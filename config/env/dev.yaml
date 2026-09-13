@@ -7,3 +7,9 @@ db:
   # Dev container uses auth (aiagent:aiagent) - see deploy/environments/local/docker-compose.yaml
   uri: mongodb://aiagent:aiagent@localhost:27018/aiagent?authSource=admin
   name: aiagent
+
+runtime:
+  # Small backoff so local retry behaviour is observable quickly.
+  retry:
+    backoff_base_secs: 0.05
+    backoff_cap_secs: 0.2

@@ -86,6 +86,38 @@ class StorageSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     artifacts_dir: str = "data/artifacts"
+    prompts_dir: str = "config/prompts"
+
+
+class RuntimeRetrySettings(BaseModel):
+    """Default retry policy for model calls not overridden by agent config."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_attempts: int = Field(default=3, ge=1, le=10)
+    backoff_base_secs: float = Field(default=1.0, ge=0)
+    backoff_cap_secs: float = Field(default=30.0, ge=0)
+    jitter: bool = True
+
+
+class RuntimeSettings(BaseModel):
+    """Agent runtime limits and default model configuration (STEP 5).
+
+    Only settings that do not belong to the agent definition itself live here;
+    per-agent model/preference overrides come from ``Agent.model``
+    (:class:`aiagent.db.models.ModelConfig`).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    default_provider: str = "mock"
+    default_model: str = "mock-default"
+    default_max_tokens: int = Field(default=1024, ge=1)
+    default_timeout_secs: float = Field(default=30.0, gt=0)
+    max_input_chars: int = Field(default=200_000, ge=1)
+    max_output_chars: int = Field(default=100_000, ge=1)
+    inline_preview_chars: int = Field(default=4_000, ge=1)
+    retry: RuntimeRetrySettings = Field(default_factory=RuntimeRetrySettings)
 
 
 class Settings(BaseModel):
@@ -98,6 +130,7 @@ class Settings(BaseModel):
     db: DBSettings = Field(default_factory=DBSettings)
     health: HealthSettings = Field(default_factory=HealthSettings)
     storage: StorageSettings = Field(default_factory=StorageSettings)
+    runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
 
     @classmethod
     def load(
