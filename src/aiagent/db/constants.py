@@ -76,6 +76,126 @@ class AgentRunStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class AgentStatus(StrEnum):
+    """Lifecycle of an agent *definition* in the registry (docs/plan/04 §1).
+
+    Distinct from ``AgentRunStatus`` (lifecycle of one execution).  States:
+    ``registered`` (definition created) → ``active`` (eligible for assignment)
+    → ``inactive`` (paused, not eligible) → ``disabled`` (blocked) →
+    ``deprecated`` (superseded, terminal).
+    """
+
+    REGISTERED = "registered"
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    DISABLED = "disabled"
+    DEPRECATED = "deprecated"
+
+
+class AgentRole(StrEnum):
+    """Canonical agent roles (docs/plan/05 §9, condensed).
+
+    Role is the *function* an agent performs (used for role lookups), distinct
+    from ``department`` (its organizational group) and ``capabilities`` (what
+    it can do).
+    """
+
+    ORCHESTRATOR = "orchestrator"
+    PRODUCT_MANAGER = "product-manager"
+    BUSINESS_ANALYST = "business-analyst"
+    RESEARCHER = "researcher"
+    ARCHITECT = "architect"
+    DEVELOPER = "developer"
+    CODE_REVIEWER = "code-reviewer"
+    QA_ENGINEER = "qa-engineer"
+    SECURITY_ENGINEER = "security-engineer"
+    DEVOPS_ENGINEER = "devops-engineer"
+    PROJECT_MANAGER = "project-manager"
+
+
+class AgentDepartment(StrEnum):
+    """Agent organizational groups (docs/plan/05 §1-8)."""
+
+    EXECUTIVE = "executive"
+    PRODUCT = "product"
+    RESEARCH = "research"
+    ARCHITECTURE = "architecture"
+    DEVELOPMENT = "development"
+    QUALITY = "quality"
+    DEVOPS = "devops"
+    MANAGEMENT = "management"
+
+
+class AgentCapability(StrEnum):
+    """Machine-readable capability catalog (docs/plan/04 §5, 05 §2-8).
+
+    ``<area>.<verb>`` form so the future task orchestrator can answer "which
+    agents can perform this task?" by matching capability ids directly.
+    """
+
+    # research
+    RESEARCH_MARKET = "research.market"
+    RESEARCH_COMPETITOR = "research.competitor"
+    RESEARCH_TECHNICAL = "research.technical"
+    # product
+    PRODUCT_REQUIREMENTS = "product.requirements"
+    PRODUCT_PRD = "product.prd"
+    PRODUCT_PLANNING = "product.planning"
+    # architecture
+    ARCHITECTURE_SYSTEM = "architecture.system"
+    ARCHITECTURE_DATABASE = "architecture.database"
+    ARCHITECTURE_SECURITY = "architecture.security"
+    ARCHITECTURE_DEVOPS = "architecture.devops"
+    # development
+    DEVELOPMENT_FRONTEND = "development.frontend"
+    DEVELOPMENT_BACKEND = "development.backend"
+    DEVELOPMENT_DATABASE = "development.database"
+    DEVELOPMENT_API = "development.api"
+    DEVELOPMENT_INTEGRATION = "development.integration"
+    # quality
+    TESTING_UNIT = "testing.unit"
+    TESTING_INTEGRATION = "testing.integration"
+    TESTING_E2E = "testing.e2e"
+    QUALITY_ASSURANCE = "quality.assurance"
+    CODE_REVIEW = "code.review"
+    # security
+    SECURITY_AUDIT = "security.audit"
+    SECURITY_TESTING = "security.testing"
+    # devops
+    DEVOPS_CICD = "devops.cicd"
+    DEVOPS_DEPLOYMENT = "devops.deployment"
+    DEVOPS_INFRASTRUCTURE = "devops.infrastructure"
+    DEVOPS_MONITORING = "devops.monitoring"
+    # management
+    MANAGEMENT_PROJECT = "management.project"
+    MANAGEMENT_PROGRESS = "management.progress"
+    MANAGEMENT_DECISION = "management.decision"
+    # documentation
+    DOCUMENTATION = "documentation"
+
+
+class ToolPermissionLevel(StrEnum):
+    """Cap on what a tool permission grants (docs/plan/36 §1 default-deny).
+
+    ``none`` is the default ceiling for every agent; tools are then granted
+    at or below this ceiling via ``allowed_tool_ids`` / per-tool levels.
+    """
+
+    NONE = "none"
+    READ = "read"
+    WRITE = "write"
+    EXECUTE = "execute"
+    ADMIN = "admin"
+
+
+class EgressPolicy(StrEnum):
+    """Network egress policy for an agent (docs/plan/36 §4, 04 §1)."""
+
+    NONE = "none"
+    ALLOWLIST = "allowlist"
+    LOCALHOST = "localhost"
+
+
 class WorkflowRunStatus(StrEnum):
     """Workflow_run lifecycle. ``created`` marks a recorded run the engine has
     not started executing yet (STEP 3); the engine advances to ``running``."""

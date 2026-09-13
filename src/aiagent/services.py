@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from aiagent.agents.services import AgentService
+from aiagent.agents.services import AgentRegistryService
 from aiagent.db.repositories import Repositories
 from aiagent.events.audit import AuditLogger
 from aiagent.events.publisher import EventPublisher
@@ -26,7 +26,7 @@ class ServiceLayer:
     """Handles to every service, ready for injection into API routers."""
 
     projects: ProjectService
-    agents: AgentService
+    agents: AgentRegistryService
     tasks: TaskService
     workflows: WorkflowService
 
@@ -37,7 +37,7 @@ def build_service_layer(database: AsyncIOMotorDatabase) -> ServiceLayer:
     audit = AuditLogger(repos.audit_logs)
     return ServiceLayer(
         projects=ProjectService(repos, publisher, audit),
-        agents=AgentService(repos, publisher, audit),
+        agents=AgentRegistryService(repos, publisher, audit),
         tasks=TaskService(repos, publisher, audit),
         workflows=WorkflowService(repos, publisher, audit),
     )

@@ -29,6 +29,12 @@ class EventType(StrEnum):
     # agent registry
     AGENT_CREATED = "agent.created"
     AGENT_UPDATED = "agent.updated"
+    AGENT_ENABLED = "agent.enabled"
+    AGENT_DISABLED = "agent.disabled"
+    AGENT_DEPRECATED = "agent.deprecated"
+    AGENT_PERMISSIONS_CHANGED = "agent.permissions_changed"
+    AGENT_MODEL_CHANGED = "agent.model_changed"
+    AGENT_AUTONOMY_CHANGED = "agent.autonomy_changed"
     # task lifecycle
     TASK_CREATED = "task.created"
     TASK_UPDATED = "task.updated"

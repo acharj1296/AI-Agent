@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError as PydanticValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from aiagent.api.envelope import error
@@ -43,6 +44,18 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
     )
 
 
+async def _pydantic_error_handler(request: Request, exc: PydanticValidationError) -> JSONResponse:
+    """Map domain-level validation failures (e.g. invalid slug/version) to 422."""
+    details = [
+        {"loc": list(err.get("loc", [])), "msg": err.get("msg", ""), "type": err.get("type", "")}
+        for err in exc.errors()
+    ]
+    return JSONResponse(
+        status_code=422,
+        content=error(code="validation_error", message="agent definition invalid", details=details),
+    )
+
+
 async def _http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
@@ -70,5 +83,6 @@ def register_exception_handlers(app: FastAPI) -> None:
     """
     app.add_exception_handler(AiAgentError, _aiagent_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RequestValidationError, _validation_error_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(PydanticValidationError, _pydantic_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(StarletteHTTPException, _http_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, _unhandled_exception_handler)

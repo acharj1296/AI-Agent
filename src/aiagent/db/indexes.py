@@ -102,6 +102,31 @@ INDEXES: tuple[IndexSpec, ...] = (
         reason="agents are addressed by stable agent_id",
     ),
     IndexSpec(
+        "agents",
+        {"slug": 1},
+        "uq_agents_slug",
+        unique=True,
+        reason="registry resolves agents by unique human/URL slug",
+    ),
+    IndexSpec(
+        "agents",
+        {"status": 1, "department": 1},
+        "ix_agents_status_department",
+        reason="find active agents by department (registry lookup)",
+    ),
+    IndexSpec(
+        "agents",
+        {"status": 1, "role": 1},
+        "ix_agents_status_role",
+        reason="find active agents by role (registry lookup)",
+    ),
+    IndexSpec(
+        "agents",
+        {"status": 1, "capabilities": 1},
+        "ix_agents_status_capability",
+        reason="find active agents by capability (task eligibility)",
+    ),
+    IndexSpec(
         "models",
         {"model_id": 1},
         "uq_models_model_id",

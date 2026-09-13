@@ -55,3 +55,17 @@ class ConflictError(AiAgentError):
 
     status_code = 409
     error_code = "conflict"
+
+
+class InvalidStateError(AiAgentError):
+    """A state transition is not permitted by the entity's state machine."""
+
+    status_code = 409
+    error_code = "invalid_state"
+
+
+class PolicyViolationError(AiAgentError):
+    """The configuration violates a least-privilege / security policy."""
+
+    status_code = 403
+    error_code = "policy_violation"

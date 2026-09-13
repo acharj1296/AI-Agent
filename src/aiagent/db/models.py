@@ -11,14 +11,26 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from aiagent.db.base import BaseDocument, utcnow, validate_doc_id
 from aiagent.db.constants import (
+    AgentCapability,
+    AgentDepartment,
+    AgentRole,
     AgentRunStatus,
+    AgentStatus,
     ApprovalStatus,
     ApprovalTier,
     ArtifactStatus,
+    EgressPolicy,
     EventStatus,
     MemoryKind,
     MessageStatus,
@@ -31,12 +43,15 @@ from aiagent.db.constants import (
     TaskRunStatus,
     TaskStatus,
     ToolCallStatus,
+    ToolPermissionLevel,
     UserRole,
     WorkflowRunStatus,
     WorkflowStatus,
 )
 
 _SIMPLE_EMAIL_MARKERS = ("@", ".")
+_SEMVER_PATTERN = r"^\d+\.\d+\.\d+$"
+_SLUG_PATTERN = r"^[a-z0-9]+(-[a-z0-9]+)*$"
 
 
 class Organization(BaseDocument):
@@ -88,15 +103,217 @@ class Project(BaseDocument):
     current_workflow_id: str | None = None
 
 
+class RetryPolicy(BaseModel):
+    """Transient-error retry policy for model calls (docs/plan/06 §3, §7)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_attempts: int = Field(default=3, ge=1, le=10)
+    backoff_base_secs: float = Field(default=10.0, ge=0)
+    backoff_cap_secs: float = Field(default=300.0, ge=0)
+    jitter: bool = True
+
+
+class ModelConfig(BaseModel):
+    """Provider-agnostic agent model preference (docs/plan/12 §1-3).
+
+    Configuration only - no provider integration happens here.  ``provider``
+    may be omitted so the choice can be deferred to the model router; when a
+    provider is set a concrete model name is required (and vice-versa).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: ModelProvider | None = None
+    model: str | None = Field(default=None, min_length=1, max_length=256)
+    fallback_models: list[str] = Field(default_factory=list)
+    max_tokens: int | None = Field(default=None, ge=1)
+    context_window: int | None = Field(default=None, ge=1)
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    timeout_secs: int | None = Field(default=None, ge=1)
+    retry_policy: RetryPolicy | None = None
+
+    @model_validator(mode="after")
+    def _provider_model_pair(self) -> ModelConfig:
+        if self.provider is None and self.model is not None:
+            raise ValueError("model set without a provider")
+        if self.provider is not None and self.model is None:
+            raise ValueError("provider set without a model name")
+        return self
+
+
+class ToolSet(BaseModel):
+    """Allowed/denied tool ids with a default-deny permission ceiling.
+
+    Mirrors docs/plan/36 §1-2: ``default_level`` is the ceiling, per-tool
+    ``tool_levels`` may lower it, ``denied_tool_ids`` always wins.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed_tool_ids: list[str] = Field(default_factory=list)
+    denied_tool_ids: list[str] = Field(default_factory=list)
+    default_level: ToolPermissionLevel = ToolPermissionLevel.READ
+    tool_levels: dict[str, ToolPermissionLevel] = Field(default_factory=dict)
+
+    def level_for(self, tool_id: str) -> ToolPermissionLevel:
+        """Effective level for *tool_id* (default-deny resolution)."""
+        if tool_id in self.denied_tool_ids or tool_id not in self.allowed_tool_ids:
+            return ToolPermissionLevel.NONE
+        return self.tool_levels.get(tool_id, self.default_level)
+
+
+class FileSystemPermissions(BaseModel):
+    """Path scopes (docs/plan/36 §3). Empty roots mean "not granted"."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    read_root: str | None = None
+    write_root: str | None = None
+    allow_paths: list[str] = Field(default_factory=list)
+    deny_paths: list[str] = Field(default_factory=list)
+
+
+class NetworkPermissions(BaseModel):
+    """Egress policy (docs/plan/36 §4); default none (no egress)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    egress: EgressPolicy = EgressPolicy.NONE
+    allow_hosts: list[str] = Field(default_factory=list)
+
+
+class DatabasePermissions(BaseModel):
+    """Database access (docs/plan/05 §5.3)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    database_names: list[str] = Field(default_factory=list)
+    can_migrate: bool = False
+
+
+class CodeExecutionPermissions(BaseModel):
+    """Command execution (docs/plan/20, 36 §1). Default: not allowed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: bool = False
+    sandbox: str | None = None
+
+
+class RepositoryPermissions(BaseModel):
+    """Repository access (docs/plan/04 §1). Default: read-only, no commit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    repositories: list[str] = Field(default_factory=list)
+    can_commit: bool = False
+    can_push: bool = False
+
+
+class SecretPermissions(BaseModel):
+    """Secret names an agent may request (docs/plan/36 §5). Default: none."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed_secret_names: list[str] = Field(default_factory=list)
+
+
+class ResourcePermissions(BaseModel):
+    """The six resource permission areas (docs/plan/36 §1, 39)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    filesystem: FileSystemPermissions = Field(default_factory=FileSystemPermissions)
+    network: NetworkPermissions = Field(default_factory=NetworkPermissions)
+    database: DatabasePermissions = Field(default_factory=DatabasePermissions)
+    code_execution: CodeExecutionPermissions = Field(default_factory=CodeExecutionPermissions)
+    repository: RepositoryPermissions = Field(default_factory=RepositoryPermissions)
+    secrets: SecretPermissions = Field(default_factory=SecretPermissions)
+
+
+class AutonomyConfig(BaseModel):
+    """Per-agent autonomy (docs/plan/45 §1) + approval tiers (docs/plan/17).
+
+    ``level`` 0..5 (L0 fully manual .. L5 board oversight).  ``approval_tiers``
+    lists the gate tiers that still require human approval for this agent.
+    Configuration only - the approval engine is a later step.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    level: int = Field(default=2, ge=0, le=5)
+    approval_tiers: list[ApprovalTier] = Field(default_factory=lambda: [ApprovalTier.T3])
+
+
+_RANK = {
+    ToolPermissionLevel.NONE: 0,
+    ToolPermissionLevel.READ: 1,
+    ToolPermissionLevel.WRITE: 2,
+    ToolPermissionLevel.EXECUTE: 3,
+    ToolPermissionLevel.ADMIN: 4,
+}
+
+
 class Agent(BaseDocument):
-    """Agent definition registry (docs/plan/28 section 2.2)."""
+    """Agent definition registry (docs/plan/28 §2.2, schemas in 04 §1).
+
+    Split by design so runtime configuration can change without rewriting the
+    agent definition:
+
+    * **identity** - ``agent_id`` (stable handle), ``slug`` (unique URL-safe
+      identifier), ``name``, ``description``, ``role``, ``department``.
+    * **runtime config** - ``system_prompt_ref``, ``model``, ``tools``.
+    * **permissions** - ``permissions`` (filesystem / network / database /
+      code-execution / repository / secret access; least-privilege).
+    * **autonomy** - ``autonomy`` (level 0..5, docs/plan/45).
+    * **lifecycle** - ``status`` (registry state machine), ``version``
+      (semantic; history preserved via the audit trail).
+
+    ``config`` is retained from STEP 3 as a forward-compatible supplementary
+    dict for legacy / untyped configuration; new callers use the typed fields.
+    """
 
     collection = "agents"
 
     agent_id: str = Field(min_length=1, max_length=256)
-    department: str | None = None
-    name: str | None = None
+    name: str = Field(min_length=1, max_length=512)
+    slug: str = Field(min_length=1, max_length=256)
+    description: str | None = None
+    role: AgentRole = AgentRole.DEVELOPER
+    department: AgentDepartment | None = None
+    status: AgentStatus = AgentStatus.REGISTERED
+    version: str = Field(default="1.0.0", pattern=_SEMVER_PATTERN)
+    capabilities: list[AgentCapability] = Field(default_factory=list)
+    system_prompt_ref: str | None = None
+    model: ModelConfig | None = None
+    tools: ToolSet | None = None
+    permissions: ResourcePermissions | None = None
+    autonomy: AutonomyConfig | None = None
     config: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("slug")
+    @classmethod
+    def _slug_shape(cls, value: str) -> str:
+        import re
+
+        if not re.fullmatch(_SLUG_PATTERN, value):
+            raise ValueError(f"slug must be lowercase-hyphenated, got {value!r}")
+        return value
+
+    def can_use_tool(
+        self, tool_id: str, *, level: ToolPermissionLevel = ToolPermissionLevel.READ
+    ) -> bool:
+        """Registry-level "Can Agent X use Tool Y?" check (default-deny).
+
+        Static definition check only - the runtime Permission Guard (docs/
+        plan/36 §3, a later step) remains the single enforcement point.
+        """
+        granted = self.tools.level_for(tool_id) if self.tools else ToolPermissionLevel.NONE
+        return _RANK[granted] >= _RANK[level]
+
+    def has_capability(self, capability: AgentCapability | str) -> bool:
+        return AgentCapability(capability) in self.capabilities
 
 
 class AgentRun(BaseDocument):

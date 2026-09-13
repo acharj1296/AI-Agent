@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from aiagent import __version__
 from aiagent.api.envelope import ok
 from aiagent.api.errors import register_exception_handlers
+from aiagent.api.routers.agents import router as agents_router
 from aiagent.api.routers.health import router as health_router
 from aiagent.core.config import Settings, load_settings
 from aiagent.core.context import clear_request_context, get_request_context, set_request_context
@@ -113,6 +114,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     app.include_router(health_router)
+    app.include_router(agents_router)
 
     return app
 

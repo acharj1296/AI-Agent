@@ -1,7 +1,7 @@
 # Implementation Progress — AI-Agent
 
 Status: **STEP 1 (Foundation) COMPLETE, STEP 2 (MongoDB primary DB) COMPLETE,**
-**STEP 3 (Core Domain Models) COMPLETE**.
+**STEP 3 (Core Domain Models) COMPLETE, STEP 4 (Agent Registry) COMPLETE**.
 Last updated: 2026-09-13
 
 ## Step 1 — Foundation (DONE)
@@ -299,3 +299,105 @@ Indexes verified via mongosh: `task_runs` → `uq_task_runs_task_attempt`
   Phase 4.
 - API routers consuming `ServicesDep` (project/task/workflow CRUD surface).
 - Event dispatcher for the `pending` outbox entries.
+
+## Step 4 — Agent registry (DONE)
+
+Full design: `docs/plan/STEP4_AGENT_REGISTRY.md`. Formalizes the definition
+registry and eligibility foundation only — no runtime, tool execution, task
+assignment, queue, workflow engine, memory or automation (STEP 4 stop rule).
+
+### What was implemented
+
+Agent model & catalog:
+- `db/models.py` — full `Agent` definition: `agent_id`, `slug`
+  (lowercase-hyphenated, auto-derived when omitted), `department`/`role`/
+  `capabilities`, `trusted`, `status`, semver `version`, `system_prompt_ref`,
+  `owner_user_id`, created/updated timestamps, and config blocks `model`
+  (`ModelConfig`), `tools` (`ToolSet`), `permissions` (`Permissions`),
+  `autonomy` (`Autonomy`).
+- `db/constants.py` — `AgentCapability`/`AgentRole`/`AgentDepartment` enums.
+- `agents/status.py` — `assert_transition` canonical state machine:
+  REGISTERED → ACTIVE/DISABLED, ACTIVE ↔ DISABLED, ACTIVE → DEPRECATED
+  (terminal). INACTIVE defined but unreachable (future suspend).
+- `agents/catalog.py` — `DEPARTMENT_CAPABILITIES` per department; guardrails
+  `requires_trusted`, `assert_not_high_risk`; `AgentEligibilityQuery` +
+  `is_eligible` (missing autonomy → level 0).
+- `events/types.py` — `AGENT_ENABLED`, `AGENT_DISABLED`, `AGENT_DEPRECATED`,
+  `AGENT_PERMISSIONS_CHANGED`, `AGENT_MODEL_CHANGED`, `AGENT_AUTONOMY_CHANGED`.
+
+Service & seed:
+- `agents/services.py` — `AgentRegistryService`: `register_agent`
+  (STEP-3-compatible `config=` path), reads (`get_agent`/`find_agent`/
+  `find_by_slug`/`find_any`/`list_agents` paginated), `update_agent`
+  (auto patch-version bump on config-block changes, no downgrades, `status=`
+  rejected), lifecycle (`enable_agent`/`disable_agent`/`deprecate_agent`),
+  discovery (`find_by_department`/`role`/`capability`), `find_eligible`
+  (query or dict), `can_use_tool`, `run_seed`. Pre-write least-privilege
+  checks (`requires_trusted`); events + before/after audit on every mutation.
+- `agents/seed.py` — `SYSTEM_AGENTS` (8 MVP agents, ACTIVE, trusted, v1.0.0,
+  autonomy 2, `system_prompt_ref` per agent) + idempotent
+  `seed_system_agents(registry)` (never overwrites); `__main__.py` →
+  `python -m aiagent.agents`.
+- `db/indexes.py` — agents: unique `uq_agents_agent_id`, unique `uq_agents_slug`,
+  `ix_agents_status_department`, `ix_agents_status_role`,
+  `ix_agents_status_capability`.
+
+API:
+- `api/routers/agents.py` — `GET /agents` (+status/department/role/capability
+  filters), `GET /agents/eligible`, `GET /agents/capability/{capability}`,
+  `GET /agents/{handle}` (slug then agent_id), `POST /agents`,
+  `PATCH /agents/{handle}`, `POST .../enable|disable|deprecate`; request
+  schemas `extra="forbid"`; `_public_agent` redaction (secrets names only);
+  mounted in `api/app.py`.
+- `api/errors.py` — new `PydanticValidationError` → 422 `validation_error`
+  handler so domain-level validation (e.g. invalid slug) is a 4xx, not 500.
+
+Tests:
+- `tests/unit/test_agents.py` (~80 offline unit tests)
+- `tests/integration/test_agent_registry.py` (23 registry tests; renamed from
+  `test_agents.py` to avoid the unit test-module name collision)
+- `tests/integration/test_agents_api.py` (8 HTTP tests; reachability skip +
+  per-test DB reset via throwaway client to avoid the TestClient event-loop
+  mismatch).
+
+### Setup commands used (Windows/PowerShell)
+
+- `python -m aiagent.db` → 18 MVP collections + indexes (agents indexes added).
+- `python -m aiagent.agents` → seeded 8 system agents; rerun idempotent.
+
+### Verification results
+
+| Gate | Command | Result |
+|------|---------|--------|
+| Format | `black src tests` | clean (54 files) |
+| Lint | `ruff check src tests` | clean (0 errors) |
+| Types | `mypy src` | clean (42 files) |
+| Tests | `pytest` | **152 passed** (80 unit + 45 integration + existing suites) |
+| Seed | `python -m aiagent.agents` (x2) | 8 agents seeded; rerun no-op |
+| Indexes | `mongosh listIndexes(agents)` | unique `agent_id`/`slug` + composites present |
+| Live | uvicorn + `/healthz`, `/readyz` | 200 / `database: ok`; `GET /agents` → 8 seeded slugs |
+| Secrets | src/tests/docs scan | clean |
+
+### Issues found and resolved
+
+- **Pydantic reserved field**: `model_config` on `Agent` collides with
+  Pydantic's class attr → renamed to `model` throughout (auto-changes the STEP
+  3 field name; needs approval).
+- **Invalid slug → 500**: domain `ValidationError` escaped the route; added the
+  `api/errors.py` handler → 422 envelope.
+- **TestClient loop mismatch**: `mongo_db` fixture bound the global client to
+  the pytest-asyncio loop; API tests now reachability-skip + drop the isolated
+  DB per test with throwaway clients.
+- **Test pollution**: reused `agent_id`s across API tests leaked into later
+  assertions; per-test DB reset added.
+- **Catalog typing** (`ToolSet | None`), **is_eligible autonomy** (missing →
+  level 0), **mypy list invariance** (`Sequence`).
+
+### Decisions requiring approval
+
+1. Field renamed `model_config` → `model` (Pydantic v2 constraint).
+2. INACTIVE defined but unreachable in STEP 4; suspend transition later.
+3. Seed agents' `model` is `None` (profile selection deferred to model routing).
+4. No `org_id` on MVP `Agent` (single-org assumption).
+5. Versioning = single doc + semver + audit history.
+6. Eligibility is registry-only; assignment comes with the task system.

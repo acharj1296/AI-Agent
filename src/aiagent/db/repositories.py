@@ -255,6 +255,34 @@ class AgentRepository(Repository[Agent]):
     async def find_by_agent_id(self, agent_id: str) -> Agent | None:
         return await self.find_one({"agent_id": agent_id})
 
+    async def find_by_slug(self, slug: str) -> Agent | None:
+        return await self.find_one({"slug": slug})
+
+    async def find_by_department(
+        self, department: str, *, status: str | None = None
+    ) -> list[Agent]:
+        query: dict[str, Any] = {"department": department}
+        if status:
+            query["status"] = status
+        return await self.find_many(query, sort=[("created_at", 1)])
+
+    async def find_by_role(self, role: str, *, status: str | None = None) -> list[Agent]:
+        query: dict[str, Any] = {"role": role}
+        if status:
+            query["status"] = status
+        return await self.find_many(query, sort=[("created_at", 1)])
+
+    async def find_by_capability(
+        self, capability: str, *, status: str | None = None
+    ) -> list[Agent]:
+        query: dict[str, Any] = {"capabilities": capability}
+        if status:
+            query["status"] = status
+        return await self.find_many(query, sort=[("created_at", 1)])
+
+    async def count_by_status(self, status: str) -> int:
+        return await self.count({"status": status})
+
 
 class AgentRunRepository(Repository[AgentRun]):
     def __init__(self, db: AsyncIOMotorDatabase) -> None:
