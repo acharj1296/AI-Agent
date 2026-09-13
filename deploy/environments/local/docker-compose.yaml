@@ -1,0 +1,39 @@
+# Local development services only (no application service yet).
+# MongoDB is the primary database (see docs/plan/MONGODB_DESIGN.md).
+# Run: docker compose -f deploy/environments/local/docker-compose.yaml up -d
+
+services:
+  mongodb:
+    image: mongo:8
+    container_name: aiagent-local-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: aiagent
+      MONGO_INITDB_ROOT_PASSWORD: aiagent
+      MONGO_INITDB_DATABASE: aiagent
+    ports:
+      # 27018 on the host avoids a conflict with a system MongoDB service on 27017.
+      - "27018:27017"
+    volumes:
+      - mongodata:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "--quiet",
+          "-u",
+          "aiagent",
+          "-p",
+          "aiagent",
+          "--authenticationDatabase",
+          "admin",
+          "--eval",
+          "db.adminCommand('ping').ok",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mongodata:

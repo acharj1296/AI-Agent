@@ -1,0 +1,31 @@
+# Built-in defaults. Loaded first, then overridden by config/env/<APP_ENV>.yaml,
+# then by environment variables (APP_ENV, LOG_LEVEL, MONGODB_URI, MONGODB_DATABASE,
+# MONGODB_*_TIMEOUT_MS/MONGODB_*_POOL_SIZE, API_HOST, API_PORT).
+# Values are validated against pydantic models in src/aiagent/core/config.py.
+
+app:
+  name: aiagent
+  env: dev
+  debug: false
+  log_level: INFO
+
+api:
+  prefix: /v1
+  host: 127.0.0.1
+  port: 8000
+  root_path: ""
+
+db:
+  # MongoDB is the primary database. Set MONGODB_URI/MONGODB_DATABASE to override.
+  uri: mongodb://localhost:27017/aiagent
+  name: aiagent
+  server_selection_timeout_ms: 3000
+  connect_timeout_ms: 5000
+  max_pool_size: 10
+  min_pool_size: 0
+
+health:
+  db_timeout_seconds: 2
+
+storage:
+  artifacts_dir: data/artifacts

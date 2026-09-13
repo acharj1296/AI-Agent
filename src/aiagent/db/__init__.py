@@ -1,0 +1,91 @@
+"""db: MongoDB client, document models, indexes and repositories.
+
+STEP 2 replaces the Phase 1 PostgreSQL/SQLAlchemy layer with MongoDB.  The
+16 MVP collections defined in docs/plan/MONGODB_DESIGN.md are created and
+indexed by :func:`aiagent.db.session.init_db` at application startup.
+"""
+
+from aiagent.db.base import BaseDocument, utcnow
+from aiagent.db.constants import (
+    AgentRunStatus,
+    ApprovalStatus,
+    ApprovalTier,
+    ArtifactStatus,
+    EventStatus,
+    MemoryKind,
+    MessageStatus,
+    MessageType,
+    ModelProvider,
+    ProjectStage,
+    ProjectStatus,
+    ReviewVerdict,
+    TaskPriority,
+    TaskStatus,
+    ToolCallStatus,
+    UserRole,
+    WorkflowRunStatus,
+)
+from aiagent.db.models import (
+    Agent,
+    AgentRun,
+    Approval,
+    Artifact,
+    AuditLog,
+    Event,
+    Memory,
+    Message,
+    Model,
+    Organization,
+    Project,
+    Review,
+    Task,
+    ToolCall,
+    User,
+    WorkflowRun,
+)
+from aiagent.db.repositories import Repositories, Repository
+from aiagent.db.session import close_db, get_database, init_db, ping
+
+__all__ = [
+    "Agent",
+    "AgentRun",
+    "AgentRunStatus",
+    "Approval",
+    "ApprovalStatus",
+    "ApprovalTier",
+    "Artifact",
+    "ArtifactStatus",
+    "AuditLog",
+    "BaseDocument",
+    "Event",
+    "EventStatus",
+    "Memory",
+    "MemoryKind",
+    "Message",
+    "MessageStatus",
+    "MessageType",
+    "Model",
+    "ModelProvider",
+    "Organization",
+    "Project",
+    "ProjectStage",
+    "ProjectStatus",
+    "Repositories",
+    "Repository",
+    "Review",
+    "ReviewVerdict",
+    "Task",
+    "TaskPriority",
+    "TaskStatus",
+    "ToolCall",
+    "ToolCallStatus",
+    "User",
+    "UserRole",
+    "WorkflowRun",
+    "WorkflowRunStatus",
+    "close_db",
+    "get_database",
+    "init_db",
+    "ping",
+    "utcnow",
+]

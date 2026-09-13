@@ -1,0 +1,9 @@
+app:
+  env: dev
+  debug: true
+  log_level: DEBUG
+
+db:
+  # Dev container uses auth (aiagent:aiagent) - see deploy/environments/local/docker-compose.yaml
+  uri: mongodb://aiagent:aiagent@localhost:27018/aiagent?authSource=admin
+  name: aiagent

@@ -1,0 +1,11 @@
+app:
+  env: prod
+  debug: false
+  log_level: WARNING
+
+db:
+  # Production credentials come exclusively from MONGODB_URI / MONGODB_DATABASE
+  # environment variables; no secrets live in this file.
+  server_selection_timeout_ms: 5000
+  max_pool_size: 20
+  min_pool_size: 2
