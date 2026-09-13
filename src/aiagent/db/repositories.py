@@ -12,6 +12,7 @@ errors are translated into safe application-level errors
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
@@ -47,8 +48,10 @@ from aiagent.db.models import (
     Project,
     Review,
     Task,
+    TaskRun,
     ToolCall,
     User,
+    Workflow,
     WorkflowRun,
 )
 
@@ -59,7 +62,9 @@ _COLLECTION_LABEL = {
     "agents": "agent",
     "agent_runs": "agent run",
     "tasks": "task",
+    "task_runs": "task run",
     "workflow_runs": "workflow run",
+    "workflows": "workflow",
     "artifacts": "artifact",
     "messages": "message",
     "memories": "memory",
@@ -97,6 +102,20 @@ def _duplicate_field(exc: DuplicateKeyError) -> str | None:
     if isinstance(key_pattern, dict) and key_pattern:
         return next(iter(key_pattern))
     return None
+
+
+@dataclass(frozen=True)
+class Page[T]:
+    """A single page of results from :meth:`Repository.paginate`."""
+
+    items: list[T]
+    total: int
+    page: int
+    page_size: int
+
+    @property
+    def has_next(self) -> bool:
+        return self.page * self.page_size < self.total
 
 
 class Repository[T: BaseDocument]:
@@ -176,6 +195,31 @@ class Repository[T: BaseDocument]:
     async def count(self, query: dict[str, Any] | None = None) -> int:
         return await self.collection.count_documents(query or {})
 
+    async def paginate(
+        self,
+        query: dict[str, Any] | None = None,
+        *,
+        sort: list[tuple[str, int]] | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Page[T]:
+        """Return one page of results plus the total match count.
+
+        Pages are 1-based; ``page_size`` is clamped to a sane upper bound.
+        ``has_next`` is derived from ``page * page_size < total`` so callers
+        never need an extra query to detect the last page.
+        """
+        page = max(1, page)
+        page_size = min(max(1, page_size), 200)
+        total = await self.count(query)
+        items = await self.find_many(
+            query,
+            sort=sort,
+            limit=page_size,
+            skip=(page - 1) * page_size,
+        )
+        return Page(items=items, total=total, page=page, page_size=page_size)
+
 
 class OrganizationRepository(Repository[Organization]):
     def __init__(self, db: AsyncIOMotorDatabase) -> None:
@@ -234,6 +278,44 @@ class TaskRepository(Repository[Task]):
 class WorkflowRunRepository(Repository[WorkflowRun]):
     def __init__(self, db: AsyncIOMotorDatabase) -> None:
         super().__init__(db, WorkflowRun)
+
+    async def find_by_project(
+        self, project_id: str, *, status: str | None = None
+    ) -> list[WorkflowRun]:
+        query: dict[str, Any] = {"project_id": project_id}
+        if status:
+            query["status"] = status
+        return await self.find_many(query, sort=[("created_at", -1)])
+
+
+class WorkflowRepository(Repository[Workflow]):
+    def __init__(self, db: AsyncIOMotorDatabase) -> None:
+        super().__init__(db, Workflow)
+
+    async def find_by_id_version(
+        self, workflow_id: str, version: int | None = None
+    ) -> Workflow | None:
+        query: dict[str, Any] = {"workflow_id": workflow_id}
+        if version is not None:
+            query["version"] = version
+            return await self.find_one(query)
+        docs = await self.find_many(query, sort=[("version", -1)], limit=1)
+        return docs[0] if docs else None
+
+    async def find_active(self) -> list[Workflow]:
+        return await self.find_many({"status": "active"}, sort=[("created_at", -1)])
+
+
+class TaskRunRepository(Repository[TaskRun]):
+    def __init__(self, db: AsyncIOMotorDatabase) -> None:
+        super().__init__(db, TaskRun)
+
+    async def find_by_task(self, task_id: str) -> list[TaskRun]:
+        return await self.find_many({"task_id": task_id}, sort=[("attempt", -1)])
+
+    async def next_attempt(self, task_id: str) -> int:
+        latest = await self.find_many({"task_id": task_id}, sort=[("attempt", -1)], limit=1)
+        return (latest[0].attempt + 1) if latest else 1
 
 
 class ArtifactRepository(Repository[Artifact]):
@@ -313,7 +395,9 @@ class Repositories:
         self.agents = AgentRepository(db)
         self.agent_runs = AgentRunRepository(db)
         self.tasks = TaskRepository(db)
+        self.task_runs = TaskRunRepository(db)
         self.workflow_runs = WorkflowRunRepository(db)
+        self.workflows = WorkflowRepository(db)
         self.artifacts = ArtifactRepository(db)
         self.messages = MessageRepository(db)
         self.memories = MemoryRepository(db)

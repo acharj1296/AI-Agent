@@ -1,6 +1,7 @@
 # Implementation Progress — AI-Agent
 
-Status: **STEP 1 (Foundation) COMPLETE, STEP 2 (MongoDB primary DB) COMPLETE**.
+Status: **STEP 1 (Foundation) COMPLETE, STEP 2 (MongoDB primary DB) COMPLETE,**
+**STEP 3 (Core Domain Models) COMPLETE**.
 Last updated: 2026-09-13
 
 ## Step 1 — Foundation (DONE)
@@ -180,3 +181,121 @@ Tests:
 3. Deferred collections (providers, knowledge, deployments, environments,
    incidents, test_runs) are not created in STEP 2.
 4. Vector-search backing store (Atlas/search provider) is unresolved.
+
+## Step 3 — Core domain models (DONE)
+
+Full design: `docs/plan/STEP3_DOMAIN_MODELS.md`. STEP 3 layers the domain
+model, repositories, services, typed events and audit on top of the STEP 2
+MongoDB layer. No execution systems were implemented (no agent runtime, LLM,
+tool, queue or workflow execution) per the stop rule.
+
+### What was implemented
+
+Domain model layer (`db/`):
+- `db/constants.py` — new enums: `TaskRunStatus`
+  (created/queued/claimed/running/succeeded/failed/timeout/cancelled),
+  `WorkflowStatus` (draft/active/archived); `WorkflowRunStatus` gained
+  `created` (record exists, engine not started) and `WorkflowRun` now defaults
+  to it.
+- `db/base.py` — `is_doc_id()` / `validate_doc_id()`: canonical 32-hex doc-id
+  shape for reference fields.
+- `db/models.py` — two new entity collections:
+  - `task_runs` — per-attempt execution lease (docs/plan/08 §4): task_id/
+    project_id (doc-id validated), attempt, status, worker/agent/agent_run
+    links, lease_expires_at, error_detail, started/completed.
+  - `workflows` — versioned workflow definitions (docs/plan/07): workflow_id,
+    version (unique per id), name, description, entry, steps, status.
+- `db/indexes.py` — MVP collections **16 → 18**; new indexes: unique
+  `task_runs(task_id,attempt)`, `task_runs(status,created_at)`,
+  `task_runs(project_id,created_at)`, unique `workflows(workflow_id,version)`,
+  `workflows(status,created_at)`.
+
+Repositories (`db/repositories.py`):
+- New `TaskRunRepository` (attempt-unique, `find_by_task`, `next_attempt`) and
+  `WorkflowRepository` (`find_by_id_version`, `find_active`), wired into
+  `Repositories`.
+- Generic `Repository.paginate()` → `Page[T]` (items/total/page/page_size/
+  `has_next`), 1-based, page_size capped at 200.
+
+Services (business logic on repositories; no engines):
+- `projects/services.py` — `ProjectService`: onboarding `create_project`
+  (org reference check), `change_status` (before/after audit), `list_projects`
+  (paginated).
+- `agents/services.py` — `AgentService`: `register_agent` (unique agent_id),
+  `update_agent` (audit diff).
+- `tasks/services.py` — `TaskService`: `create_task`, `start_task_run`
+  (auto attempt numbering, unique per task), `finish_task_run`
+  (status-specific events + completion timestamps).
+- `workflow/services.py` — `WorkflowService`: `register_workflow`
+  (versioned, unique), `list_workflows`, `create_workflow_run` (project +
+  definition reference checks).
+- `aiagent/services.py` — `build_service_layer(db)` composition root
+  (`ServiceLayer` dataclass).
+
+Domain events (`aiagent/events/`, module placeholders now populated):
+- `types.py` — `EventType` StrEnum + `DomainEvent` (forbid-extra) contract;
+  `DomainEvent.build()` pulls trace_id from request context.
+- `publisher.py` — `EventPublisher` maps `DomainEvent` → `Event` doc
+  (`status: pending`); this is the outbox writer (dispatch deferred).
+- `audit.py` — `AuditLogger` + `snapshot()` (before/after for mutations).
+- Services emit: `project.created/updated`, `agent.created/updated`,
+  `task.created`, `task_run.started/completed/failed`,
+  `workflow.registered`, `workflow_run.created` — each mutation also audited.
+
+API preparation: `api/deps.py` exposes `ServicesDep` (assembled service layer)
+so routers can call services; no CRUD routers added in this step.
+
+### Setup commands used (Windows/PowerShell)
+
+- `docker compose -f deploy/environments/local/docker-compose.yaml up -d mongodb`
+  (container `aiagent-local-mongo` already healthy).
+- `python -m aiagent.db` → created the two new collections (`task_runs`,
+  `workflows`) + their indexes (18 MVP collections total).
+
+### Verification results
+
+| Gate | Command | Result |
+|------|---------|--------|
+| Format | `black src tests` | clean |
+| Lint | `ruff check src tests` | clean (0 errors) |
+| Types | `mypy src` | clean (37 files) |
+| Tests | `pytest` | **69 passed** (51 unit + 18 integration incl. real MongoDB) |
+| Init | `python -m aiagent.db` | 18 MVP collections + indexes created |
+| Live | uvicorn + `GET /healthz`, `GET /readyz` | both 200, `ok:true`, `timestamp`, `database: ok`, no URI/credentials exposed |
+
+Indexes verified via mongosh: `task_runs` → `uq_task_runs_task_attempt`
+(unique), `ix_task_runs_status_created`, `ix_task_runs_project_created`;
+`workflows` → `uq_workflows_id_version` (unique),
+`ix_workflows_status_created`.
+
+### Issues found and resolved
+
+- Pydantic `exclude_none` omits unset optional fields from stored docs, so
+  audit `before` / outbox `trace_id` are absent (not null) for create/untraced
+  events; tests assert via `.get()` and set an explicit request trace to verify
+  propagation.
+- Initial validator for `TaskRun` reference fields used a wrong decorator body
+  (broken `field="reference field"`); fixed with `ValidationInfo.field_name`.
+
+### Decisions requiring approval
+
+1. `task_runs` and `workflows` are new MVP collections (16 → 18), added before
+   the engine steps so the task/workflow systems persist against their domain
+   models.
+2. `WorkflowRunStatus.created` added; `WorkflowRun` default changed from
+   `running` → `created`.
+3. `projects/` module added (plan 30 has no project module; the project-state
+   service lives there until the orchestrator step).
+4. Domain-event delivery is outbox-only (write `pending` to `events`);
+   dispatch/consumption is intentionally deferred.
+5. Service layer covers projects, agents, tasks (+task runs) and workflows;
+   artifact/approval/review/message services deferred to their system steps.
+
+### Remaining (later steps)
+
+- Agent runtime (model calls, prompt engine, run state machine) — Phase 2.
+- Task queue + dispatcher + DAG/cycle detection + file locks — Phase 3.
+- Workflow engine: step executor, pause/resume, approval gates, watchdog —
+  Phase 4.
+- API routers consuming `ServicesDep` (project/task/workflow CRUD surface).
+- Event dispatcher for the `pending` outbox entries.

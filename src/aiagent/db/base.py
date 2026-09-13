@@ -7,6 +7,7 @@ code always works with ``id`` while stored documents use ``_id`` (see
 
 from __future__ import annotations
 
+import string
 import uuid
 from datetime import UTC, datetime
 from typing import Any, ClassVar, TypeVar
@@ -15,10 +16,33 @@ from pydantic import BaseModel, ConfigDict, Field
 
 T = TypeVar("T", bound="BaseDocument")
 
+_HEX_DIGITS = frozenset(string.hexdigits)
+_DOC_ID_LEN = 32
+
 
 def utcnow() -> datetime:
     """Return the current UTC time as a timezone-aware datetime."""
     return datetime.now(UTC)
+
+
+def is_doc_id(value: object) -> bool:
+    """True when ``value`` looks like a domain document id (32-char UUID hex).
+
+    Reference fields that store another collection's ``_id`` must satisfy this
+    shape; the convention keeps every relationship a strict, indexable string.
+    """
+    return (
+        isinstance(value, str)
+        and len(value) == _DOC_ID_LEN
+        and all(char in _HEX_DIGITS for char in value)
+    )
+
+
+def validate_doc_id(value: str, *, field: str) -> str:
+    """Pydantic field-validator body enforcing the document-id reference shape."""
+    if not is_doc_id(value):
+        raise ValueError(f"{field} must be a 32-char hex document id, got {value!r}")
+    return value
 
 
 class BaseDocument(BaseModel):

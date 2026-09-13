@@ -11,9 +11,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 
-from aiagent.db.base import BaseDocument, utcnow
+from aiagent.db.base import BaseDocument, utcnow, validate_doc_id
 from aiagent.db.constants import (
     AgentRunStatus,
     ApprovalStatus,
@@ -28,10 +28,12 @@ from aiagent.db.constants import (
     ProjectStatus,
     ReviewVerdict,
     TaskPriority,
+    TaskRunStatus,
     TaskStatus,
     ToolCallStatus,
     UserRole,
     WorkflowRunStatus,
+    WorkflowStatus,
 )
 
 _SIMPLE_EMAIL_MARKERS = ("@", ".")
@@ -145,16 +147,66 @@ class Task(BaseDocument):
     completed_at: datetime | None = None
 
 
+class Workflow(BaseDocument):
+    """Registered workflow definition (docs/plan/07 §2).
+
+    The execution engine (a later phase) reads ``steps`` + ``entry``;
+    ``workflow_runs.workflow_id`` refers to a definition by its stable
+    ``workflow_id`` (not the document ``id``), matching plan 28 §2.6.
+    """
+
+    collection = "workflows"
+
+    workflow_id: str = Field(min_length=1, max_length=256)
+    version: int = Field(default=1, ge=1)
+    name: str = Field(min_length=1, max_length=512)
+    description: str | None = None
+    entry: str | None = Field(default=None, max_length=256)
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+    status: WorkflowStatus = WorkflowStatus.DRAFT
+
+
 class WorkflowRun(BaseDocument):
-    """Workflow execution state (docs/plan/28 section 2.6)."""
+    """Workflow execution state (docs/plan/28 section 2.6).
+
+    ``workflow_id`` is the *definition* id (docs/plan/07) so a run stays
+    addressable even as the definition document is re-versioned.
+    """
 
     collection = "workflow_runs"
 
     project_id: str = Field(min_length=1)
-    workflow_id: str = Field(min_length=1)
-    status: WorkflowRunStatus = WorkflowRunStatus.RUNNING
+    workflow_id: str = Field(min_length=1, max_length=256)
+    status: WorkflowRunStatus = WorkflowRunStatus.CREATED
     current_step_stack: list[str] = Field(default_factory=list)
     step_results: dict[str, Any] | None = None
+
+
+class TaskRun(BaseDocument):
+    """One execution attempt (lease) of a task - docs/plan/08 §4 worker model.
+
+    ``agent_run_id`` links the attempt to the concrete agent run that performed
+    it; ``attempt`` increments per retry and is unique per task.
+    """
+
+    collection = "task_runs"
+
+    task_id: str = Field(min_length=1)
+    project_id: str = Field(min_length=1)
+    attempt: int = Field(default=1, ge=1)
+    status: TaskRunStatus = TaskRunStatus.CREATED
+    assigned_agent_id: str | None = None
+    worker_id: str | None = None
+    agent_run_id: str | None = None
+    lease_expires_at: datetime | None = None
+    error_detail: dict[str, Any] | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+    @field_validator("task_id", "project_id")
+    @classmethod
+    def _ref_ids(cls, value: str, info: ValidationInfo) -> str:
+        return validate_doc_id(value, field=f"{info.field_name}")
 
 
 class Artifact(BaseDocument):

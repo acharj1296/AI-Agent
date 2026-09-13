@@ -1,10 +1,12 @@
 """MongoDB collections and index initialization.
 
-MVP collections (see `docs/plan/MONGODB_DESIGN.md` for the full design):
+MVP collections (see `docs/plan/MONGODB_DESIGN.md` for the design; STEP 3 in
+`docs/plan/STEP3_DOMAIN_MODELS.md` adds ``task_runs`` and ``workflows``):
 identity (`organizations`, `users`), project state (`projects`), registry
-(`agents`, `models`), execution (`agent_runs`, `tasks`, `workflow_runs`,
-`tool_calls`), artifacts (`artifacts`), communication (`messages`, `reviews`,
-`approvals`), memory (`memories`), and observability (`events`, `audit_logs`).
+(`agents`, `models`, `workflows`), execution (`agent_runs`, `tasks`,
+`task_runs`, `workflow_runs`, `tool_calls`), artifacts (`artifacts`),
+communication (`messages`, `reviews`, `approvals`), memory (`memories`), and
+observability (`events`, `audit_logs`).
 
 Deferred to later phases: `providers`, `knowledge`, `deployments`,
 `environments`, `incidents`, `test_runs`.
@@ -48,7 +50,9 @@ MVP_COLLECTIONS: tuple[str, ...] = (
     "agents",
     "agent_runs",
     "tasks",
+    "task_runs",
     "workflow_runs",
+    "workflows",
     "artifacts",
     "messages",
     "memories",
@@ -148,6 +152,26 @@ INDEXES: tuple[IndexSpec, ...] = (
         "ix_tasks_project_parent",
         reason="sub-task tree traversal",
     ),
+    # task runs (per-attempt lease records; docs/plan/08 §4)
+    IndexSpec(
+        "task_runs",
+        {"task_id": 1, "attempt": 1},
+        "uq_task_runs_task_attempt",
+        unique=True,
+        reason="one execution attempt per task - attempts are serialized",
+    ),
+    IndexSpec(
+        "task_runs",
+        {"status": 1, "created_at": 1},
+        "ix_task_runs_status_created",
+        reason="worker pooling: reclaim stale leases by status/age",
+    ),
+    IndexSpec(
+        "task_runs",
+        {"project_id": 1, "created_at": -1},
+        "ix_task_runs_project_created",
+        reason="audit/observability listing per project",
+    ),
     # workflow runs
     IndexSpec(
         "workflow_runs",
@@ -160,6 +184,20 @@ INDEXES: tuple[IndexSpec, ...] = (
         {"project_id": 1, "created_at": -1},
         "ix_workflow_runs_project_created",
         reason="workflow history listing",
+    ),
+    # workflow definitions (docs/plan/07)
+    IndexSpec(
+        "workflows",
+        {"workflow_id": 1, "version": -1},
+        "uq_workflows_id_version",
+        unique=True,
+        reason="versioned workflow definitions - one document per (id, version)",
+    ),
+    IndexSpec(
+        "workflows",
+        {"status": 1, "created_at": -1},
+        "ix_workflows_status_created",
+        reason="active-definition registry listing",
     ),
     # artifacts
     IndexSpec(

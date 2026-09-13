@@ -49,6 +49,12 @@ connection/timeout failures, `DatabaseError` 500 otherwise).
 
 ### MVP (16, implemented)
 
+> **STEP 3 addendum (2026-09-13):** `task_runs` (per-attempt task execution
+> leases) and `workflows` (versioned workflow definitions) were added as
+> **new** MVP collections — the MVP collection count is now **18**. Full layout
+> in `docs/plan/STEP3_DOMAIN_MODELS.md`. The table below lists the original 16;
+> the two additions are documented in that STEP 3 design doc.
+
 | Collection | Purpose |
 |---|---|
 | `organizations` | company/namespace root; contains budgets + autonomy defaults |

@@ -9,6 +9,9 @@ All tests run against an isolated ``aiagent_test`` database which is dropped
 after every test - nothing is ever written to a production database.  Async
 fixtures/tests share the pytest-asyncio event loop, which is exactly the loop
 the Motor client binds to, so cross-loop usage cannot occur.
+
+The shared ``mongo_db`` fixture lives in ``tests/conftest.py`` so both
+``test_db.py`` and ``test_services.py`` share one definition.
 """
 
 from __future__ import annotations
@@ -20,7 +23,6 @@ from pydantic import ValidationError
 from aiagent.api.app import create_app
 from aiagent.core.config import Settings
 from aiagent.core.errors import ConflictError, DatabaseConnectionError
-from aiagent.db.client import create_client, ping_client
 from aiagent.db.constants import ModelProvider, TaskStatus, UserRole
 from aiagent.db.indexes import MVP_COLLECTIONS, ensure_collections_and_indexes
 from aiagent.db.models import AgentRun, Model, Organization, Project, Task, User
@@ -30,37 +32,6 @@ from aiagent.db.session import close_db, init_db, ping
 TEST_DB = "aiagent_test"
 
 pytestmark = pytest.mark.integration
-
-
-async def _mongo_reachable(max_seconds: int = 3) -> bool:
-    settings = Settings.load(env_override="dev")
-    settings.db.name = "admin"
-    settings.db.server_selection_timeout_ms = max_seconds * 1000
-    client = create_client(settings.db)
-    try:
-        return await ping_client(client)
-    finally:
-        client.close()
-
-
-@pytest.fixture
-async def mongo_db():
-    if not await _mongo_reachable():
-        pytest.skip("MongoDB is not reachable (is the local stack running?)")
-
-    settings = Settings.load(env_override="dev")
-    settings.db.name = TEST_DB
-    db = await init_db(settings)
-    yield db
-
-    # Isolated test database: drop it entirely after the test using a fresh
-    # client (the shared one may have been closed by an app lifespan).
-    client = create_client(settings.db)
-    try:
-        await client.drop_database(TEST_DB)
-    finally:
-        client.close()
-    await close_db()
 
 
 async def test_ping_true_when_mongo_up(mongo_db) -> None:

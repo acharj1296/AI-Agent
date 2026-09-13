@@ -77,11 +77,36 @@ class AgentRunStatus(StrEnum):
 
 
 class WorkflowRunStatus(StrEnum):
+    """Workflow_run lifecycle. ``created`` marks a recorded run the engine has
+    not started executing yet (STEP 3); the engine advances to ``running``."""
+
+    CREATED = "created"
     RUNNING = "running"
     PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class TaskRunStatus(StrEnum):
+    """Per-attempt execution state of a task (worker lease model, docs/plan/08 §4)."""
+
+    CREATED = "created"
+    QUEUED = "queued"
+    CLAIMED = "claimed"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
+    CANCELLED = "cancelled"
+
+
+class WorkflowStatus(StrEnum):
+    """Lifecycle of a registered workflow definition (docs/plan/07)."""
+
+    DRAFT = "draft"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
 
 
 class ApprovalTier(StrEnum):

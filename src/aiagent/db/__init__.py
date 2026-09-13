@@ -5,7 +5,7 @@ STEP 2 replaces the Phase 1 PostgreSQL/SQLAlchemy layer with MongoDB.  The
 indexed by :func:`aiagent.db.session.init_db` at application startup.
 """
 
-from aiagent.db.base import BaseDocument, utcnow
+from aiagent.db.base import BaseDocument, is_doc_id, utcnow
 from aiagent.db.constants import (
     AgentRunStatus,
     ApprovalStatus,
@@ -20,10 +20,12 @@ from aiagent.db.constants import (
     ProjectStatus,
     ReviewVerdict,
     TaskPriority,
+    TaskRunStatus,
     TaskStatus,
     ToolCallStatus,
     UserRole,
     WorkflowRunStatus,
+    WorkflowStatus,
 )
 from aiagent.db.models import (
     Agent,
@@ -39,11 +41,19 @@ from aiagent.db.models import (
     Project,
     Review,
     Task,
+    TaskRun,
     ToolCall,
     User,
+    Workflow,
     WorkflowRun,
 )
-from aiagent.db.repositories import Repositories, Repository
+from aiagent.db.repositories import (
+    Page,
+    Repositories,
+    Repository,
+    TaskRunRepository,
+    WorkflowRepository,
+)
 from aiagent.db.session import close_db, get_database, init_db, ping
 
 __all__ = [
@@ -67,6 +77,7 @@ __all__ = [
     "Model",
     "ModelProvider",
     "Organization",
+    "Page",
     "Project",
     "ProjectStage",
     "ProjectStatus",
@@ -76,16 +87,23 @@ __all__ = [
     "ReviewVerdict",
     "Task",
     "TaskPriority",
+    "TaskRun",
+    "TaskRunRepository",
+    "TaskRunStatus",
     "TaskStatus",
     "ToolCall",
     "ToolCallStatus",
     "User",
     "UserRole",
+    "Workflow",
+    "WorkflowRepository",
     "WorkflowRun",
     "WorkflowRunStatus",
+    "WorkflowStatus",
     "close_db",
     "get_database",
     "init_db",
+    "is_doc_id",
     "ping",
     "utcnow",
 ]
